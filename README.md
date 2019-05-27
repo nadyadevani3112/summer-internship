@@ -1,8 +1,8 @@
 # summer-internship
 
-Hello! Here are the codes that I have produced so far during my summer internship at PT Global Urban Esensial, Indonesia. 
+Hello! Here are the codes that I have produced so far during my summer internship in Indonesia. 
 
-The raw data that I'm using for the codes are polling results from Teman Bumil, an app for Indonesian mothers. All polls are in Indonesian. Every poll consists of 2 or 3 questions. Most of the questions are non-essay and they do not require pre-processing. 
+The raw data that I'm using for the codes are polling results from an app for Indonesian mothers. All polls are in Indonesian. Every poll consists of 2 or 3 questions. Most of the questions are non-essay and they do not require pre-processing. 
 
 In "poll 27 text mining", I pre-processed the raw free-text responses to an essay question in poll 27 and created a frequency table of unigrams and bigrams of the responses. 
 
