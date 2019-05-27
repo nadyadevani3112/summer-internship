@@ -1,0 +1,320 @@
+library(readr)
+library(stringr)
+library(data.table)
+library(parallel)
+library(tm)
+library(dplyr)
+library(slam)
+require(zoo)
+require(xts)
+library(tokenizers)
+library(stringi)
+library(ggplot2)
+library(wordcloud)
+library(SnowballC)
+require(sqldf)
+library(wordcloud2)
+library(memoise)
+library(shiny)
+library(shinyjs)
+
+polls_non_essay <- list('Poll 01 - Apakah ini kehamilan pertama Mums'='Poll 01 - Apakah ini kehamilan pertama Mums',
+ 'Poll 01 - Seberapa besar Anda ingin merekomendasikan aplikasi TemanBumil kepada teman'='Poll 01 - Seberapa besar Anda ingin merekomendasikan aplikasi TemanBumil kepada teman',
+ 'Poll 02 - Apa fitur favorite Mums di Teman Bumil (pilih 3 saja)'='Poll 02 - Apa fitur favorite Mums di Teman Bumil (pilih 3 saja)',
+ 'Poll 02 - Vitamin kehamilan apa yang Mums konsumsi (pilih 3 saja)'='Poll 02 - Vitamin kehamilan apa yang Mums konsumsi (pilih 3 saja)',
+ 'Poll 03 - Apa yang membuat Mums tertarik membeli produk kehamilan atau bayi (pilih 3 saja)'='Poll 03 - Apa yang membuat Mums tertarik membeli produk kehamilan atau bayi (pilih 3 saja)',
+ 'Poll 03 - Kategori produk apa yang Mums pengen Teman Bumil review (pilih 3 saja)'='Poll 03 - Kategori produk apa yang Mums pengen Teman Bumil review (pilih 3 saja)',
+ 'Poll 04 - Informasi kesehatan apa yang ingin Mums tahu'='Poll 04 - Informasi kesehatan apa yang ingin Mums tahu',
+'Poll 04 - Tips apa yang Mums butuhkan'='Poll 04 - Tips apa yang Mums butuhkan',
+ 'Poll 05 - Informasi pasca kelahiran apa yang Mums ingin lebih pahami (pilih 3)'='Poll 05 - Informasi pasca kelahiran apa yang Mums ingin lebih pahami (pilih 3)',
+ 'Poll 05 - Teman Bumil bisa terus Mums pakai hingga si Kecil berusia 36 bulan loh'='Poll 05 - Teman Bumil bisa terus Mums pakai hingga si Kecil berusia 36 bulan loh',
+ 'Poll 05 - Teman Bumil sudah ada di Instagram loh Mums (temanbumil)'='Poll 05 - Teman Bumil sudah ada di Instagram loh Mums (temanbumil)',
+ 'Poll 06 - Apakah Mums aktif mengikuti acara yang diadakan komunitas tersebut'='Poll 06 - Apakah Mums aktif mengikuti acara yang diadakan komunitas tersebut',
+ 'Poll 06 - Apakah selama kehamilan atau menyusui Mums tergabung dalam komunitas tertentu'='Poll 06 - Apakah selama kehamilan atau menyusui Mums tergabung dalam komunitas tertentu',
+ 'Poll 07 - Apakah Mums melakukan check up ke Dokter atau  Bidan sesuai jadwal  teratur'='Poll 07 - Apakah Mums melakukan check up ke Dokter atau  Bidan sesuai jadwal  teratur',
+ 'Poll 07 - Sudahkah Mums memperhatikan asupan gizi selama kehamilan'='Poll 07 - Sudahkah Mums memperhatikan asupan gizi selama kehamilan',
+ 'Poll 08 - Berapa nilai pembelanjaan online yang Mums lakukan setiap bulannya'='Poll 08 - Berapa nilai pembelanjaan online yang Mums lakukan setiap bulannya',
+ 'Poll 08 - Promo apa yang paling membuat Mums tertarik untuk belanja online (pilih 3)'='Poll 08 - Promo apa yang paling membuat Mums tertarik untuk belanja online (pilih 3)',
+ 'Poll 08 - Promo produk ibu dan bayi apa yg Mums harapkan dari belanja online (pilih 3)'='Poll 08 - Promo produk ibu dan bayi apa yg Mums harapkan dari belanja online (pilih 3)',
+ 'Poll 09 - Siapa saja support system Mums saat ini (pilih 3)'='Poll 09 - Siapa saja support system Mums saat ini (pilih 3)',
+ 'Poll 09 - Suami Mums sudah SIAGA (Siap - Antar - Jaga)'='Poll 09 - Suami Mums sudah SIAGA (Siap - Antar - Jaga)',
+ 'Poll 10 - Keluhan apa saja yang Mums alami selama kehamilan'='Poll 10 - Keluhan apa saja yang Mums alami selama kehamilan',
+ 'Poll 10 - Olahraga apa saja yang Mums jalani ketika masa kehamilan'='Poll 10 - Olahraga apa saja yang Mums jalani ketika masa kehamilan',
+ 'Poll 11 - Kekuatiran apa yang paling Mums rasakan ketika sedang hamil'='Poll 11 - Kekuatiran apa yang paling Mums rasakan ketika sedang hamil',
+ 'Poll 11 - Pemeriksaan kesehatan apa yang Mums lakukan sebelum hamil'='Poll 11 - Pemeriksaan kesehatan apa yang Mums lakukan sebelum hamil',
+ 'Poll 12 - Barang apa yang Mums harus beli di toko krn tidak yakin dg olshop'='Poll 12 - Barang apa yang Mums harus beli di toko krn tidak yakin dg olshop',
+ 'Poll 12 - Dimana Mums biasa paling sering belanja kebutuhan bayi'='Poll 12 - Dimana Mums biasa paling sering belanja kebutuhan bayi',
+ 'Poll 13 - Barang apa yang Mums pernah beli di onlineshop'='Poll 13 - Barang apa yang Mums pernah beli di onlineshop',
+ 'Poll 13 - Kenapa Mums lebih suka belanja di onlineshop'='Poll 13 - Kenapa Mums lebih suka belanja di onlineshop',
+ 'Poll 14 - Apa saja yang jadi pertimbangan Mums ketika memilih rental (pilih 3)'='Poll 14 - Apa saja yang jadi pertimbangan Mums ketika memilih rental (pilih 3)',
+ 'Poll 14 - Barang apa yang menurut Mums lebih baik rental daripada beli (pilih 3)'='Poll 14 - Barang apa yang menurut Mums lebih baik rental daripada beli (pilih 3)',
+ 'Poll 15 - Bagaimana cara Mums melawan mual atau morning sickness di awal kehamilan'='Poll 15 - Bagaimana cara Mums melawan mual atau morning sickness di awal kehamilan',
+ 'Poll 15 - Berapa lama Mums menanti kehamilan ini'='Poll 15 - Berapa lama Mums menanti kehamilan ini',
+ 'Poll 15 - Tantangan terbesar apa yang Mums hadapi selama kehamilan'='Poll 15 - Tantangan terbesar apa yang Mums hadapi selama kehamilan',
+ 'Poll 16 - Mana yang paling menggambarkan hubungan Mums dan suami'='Poll 16 - Mana yang paling menggambarkan hubungan Mums dan suami',
+ 'Poll 16 - Seberapa aktif suami terlibat aktif dalam proses kehamilan Mums'='Poll 16 - Seberapa aktif suami terlibat aktif dalam proses kehamilan Mums',
+ 'Poll 17 - Layanan homeservice kehamilan apa yang sudah pernah  ingin Mums coba'='Poll 17 - Layanan homeservice kehamilan apa yang sudah pernah  ingin Mums coba',
+ 'Poll 17 - Sejauh apa Moms butuh jasa bidan dtg ke rumah utk perawatan pasca lahiran'='Poll 17 - Sejauh apa Moms butuh jasa bidan dtg ke rumah utk perawatan pasca lahiran',
+ 'Poll 17 - Selama hamil apakah Mums pernah coba layanan datang ke rumah (homeservice)'='Poll 17 - Selama hamil apakah Mums pernah coba layanan datang ke rumah (homeservice)',
+ 'Poll 18 - Apakah Mums rajin mengisi KIA'='Poll 18 - Apakah Mums rajin mengisi KIA',
+ 'Poll 18 - Kendala apa saja yang Mums hadapi dalam mengisi KIA'='Poll 18 - Kendala apa saja yang Mums hadapi dalam mengisi KIA',
+ 'Poll 19 - Bagaimana cara Mums mengatasi gejala kecemasan tersebut'='Poll 19 - Bagaimana cara Mums mengatasi gejala kecemasan tersebut',
+ 'Poll 19 - Gejala kecemasan apa yang pernah Mums alami'='Poll 19 - Gejala kecemasan apa yang pernah Mums alami',
+ 'Poll 19 - Penyebab kecemasan Mums biasa nya berasal dari...'='Poll 19 - Penyebab kecemasan Mums biasa nya berasal dari...',
+ 'Poll 20 - Apakah tantangan terbesar Mums dalam menjaga asupan gizi'='Poll 20 - Apakah tantangan terbesar Mums dalam menjaga asupan gizi',
+ 'Poll 20 - Hasil pengukuran kenaikan berat badan Mums di pemeriksaan terakhir adalah...'='Poll 20 - Hasil pengukuran kenaikan berat badan Mums di pemeriksaan terakhir adalah...',
+ 'Poll 21 - Apakah Mums tertarik untuk mendaftar asuransi jiwa'='Poll 21 - Apakah Mums tertarik untuk mendaftar asuransi jiwa',
+ 'Poll 21 - Menurut Mums asuransi jiwa itu penting atau tidak'='Poll 21 - Menurut Mums asuransi jiwa itu penting atau tidak',
+ 'Poll 21 - Siapa di keluarga Mums yang sudah memiliki asuransi jiwa'='Poll 21 - Siapa di keluarga Mums yang sudah memiliki asuransi jiwa',
+ 'Poll 22 - Apa saja pertimbangan Mums ketika memilih vitamin dan suplemen kehamilan'='Poll 22 - Apa saja pertimbangan Mums ketika memilih vitamin dan suplemen kehamilan',
+ 'Poll 22 - Siapakah yang mempengaruhi Mums dalam pemilihan suplemen asam folat'='Poll 22 - Siapakah yang mempengaruhi Mums dalam pemilihan suplemen asam folat',
+ 'Poll 22 - Vitamin dan suplemen kehamilan apa yg saat ini rutin Mums konsumsi (max 3)'='Poll 22 - Vitamin dan suplemen kehamilan apa yg saat ini rutin Mums konsumsi (max 3)',
+ 'Poll 23 - Bagaimana cara Mums memantau pergerakan janin di dalam kandungan'='Poll 23 - Bagaimana cara Mums memantau pergerakan janin di dalam kandungan',
+ 'Poll 23 - Kapan biasanya janin Mums aktif bergerak'='Poll 23 - Kapan biasanya janin Mums aktif bergerak',
+ 'Poll 23 - Seberapa sering Mums mengamati pergerakan janin di dalam kandungan'='Poll 23 - Seberapa sering Mums mengamati pergerakan janin di dalam kandungan',
+ 'Poll 24 - Berapa kali dalam seminggu biasanya Mums membuka Teman Bumil'='Poll 24 - Berapa kali dalam seminggu biasanya Mums membuka Teman Bumil',
+ 'Poll 24 - Kapan biasanya Mums membuka aplikasi Teman Bumil'='Poll 24 - Kapan biasanya Mums membuka aplikasi Teman Bumil',
+ 'Poll 24 - Kehamilan kali ini adalah kehamilan Mums yang ke berapa'='Poll 24 - Kehamilan kali ini adalah kehamilan Mums yang ke berapa',
+'Poll 25 - Vitamin apa yang Mums konsumsi di trimester KEDUA'='Poll 25 - Vitamin apa yang Mums konsumsi di trimester KEDUA',
+ 'Poll 25 - Vitamin apa yang Mums konsumsi di trimester KETIGA'='Poll 25 - Vitamin apa yang Mums konsumsi di trimester KETIGA',
+ 'Poll 25 - Vitamin apa yang Mums konsumsi di trimester PERTAMA'='Poll 25 - Vitamin apa yang Mums konsumsi di trimester PERTAMA',
+ 'Poll 26 - Apa yang menjadi pertimbangan Mums ketika membeli asuransi'='Poll 26 - Apa yang menjadi pertimbangan Mums ketika membeli asuransi',
+ 'Poll 26 - Berapa besaran premi bulanan yang Mums mau bayarkan untuk asuransi jiwa'='Poll 26 - Berapa besaran premi bulanan yang Mums mau bayarkan untuk asuransi jiwa',
+ 'Poll 26 - Moment apa yang membuat Mums berpikir Wah perlu beli asuransi nih'='Poll 26 - Moment apa yang membuat Mums berpikir Wah perlu beli asuransi nih',
+ 'Poll 27 - Berapa minggu kah usia kehamilan Mums pada waktu Mums dinyatakan hamil'='Poll 27 - Berapa minggu kah usia kehamilan Mums pada waktu Mums dinyatakan hamil',
+ 'Poll 28 - Jika fitur forum kami dimoderasi oleh Bidan atau Dokter apakah Mums tertarik'='Poll 28 - Jika fitur forum kami dimoderasi oleh Bidan atau Dokter apakah Mums tertarik',
+ 'Poll 28 - Seberapa percayakah Mums terhadap rekomendasi Dokter atau Bidan'='Poll 28 - Seberapa percayakah Mums terhadap rekomendasi Dokter atau Bidan',
+ 'Poll 28 - Selama kehamilan Mums memeriksakan kandungan ke...'='Poll 28 - Selama kehamilan Mums memeriksakan kandungan ke...',
+ 'Poll 29 - Apa Mums bersedia dihubungi utk mengetahui lebih lanjut mengenai Flexilife'='Poll 29 - Apa Mums bersedia dihubungi utk mengetahui lebih lanjut mengenai Flexilife',
+ 'Poll 29 - Berapa jumlah keluarga inti Mums saat ini (Mums Dads dan si Kecil)'='Poll 29 - Berapa jumlah keluarga inti Mums saat ini (Mums Dads dan si Kecil)',
+ 'Poll 29 - Berapakah besarnya rata-rata pengeluaran keluarga Mums tiap bulannya'='Poll 29 - Berapakah besarnya rata-rata pengeluaran keluarga Mums tiap bulannya')
+
+
+polls <<- list('Poll 01 - Apakah ini kehamilan pertama Mums'='Poll 01 - Apakah ini kehamilan pertama Mums',
+ 'Poll 01 - Seberapa besar Anda ingin merekomendasikan aplikasi TemanBumil kepada teman'='Poll 01 - Seberapa besar Anda ingin merekomendasikan aplikasi TemanBumil kepada teman',
+ 'Poll 02 - Apa fitur favorite Mums di Teman Bumil (pilih 3 saja)'='Poll 02 - Apa fitur favorite Mums di Teman Bumil (pilih 3 saja)',
+ 'Poll 02 - Vitamin kehamilan apa yang Mums konsumsi (pilih 3 saja)'='Poll 02 - Vitamin kehamilan apa yang Mums konsumsi (pilih 3 saja)',
+ 'Poll 03 - Apa yang membuat Mums tertarik membeli produk kehamilan atau bayi (pilih 3 saja)'='Poll 03 - Apa yang membuat Mums tertarik membeli produk kehamilan atau bayi (pilih 3 saja)',
+ 'Poll 03 - Kategori produk apa yang Mums pengen Teman Bumil review (pilih 3 saja)'='Poll 03 - Kategori produk apa yang Mums pengen Teman Bumil review (pilih 3 saja)',
+ 'Poll 04 - Informasi kesehatan apa yang ingin Mums tahu'='Poll 04 - Informasi kesehatan apa yang ingin Mums tahu',
+'Poll 04 - Tips apa yang Mums butuhkan'='Poll 04 - Tips apa yang Mums butuhkan',
+ 'Poll 05 - Informasi pasca kelahiran apa yang Mums ingin lebih pahami (pilih 3)'='Poll 05 - Informasi pasca kelahiran apa yang Mums ingin lebih pahami (pilih 3)',
+ 'Poll 05 - Teman Bumil bisa terus Mums pakai hingga si Kecil berusia 36 bulan loh'='Poll 05 - Teman Bumil bisa terus Mums pakai hingga si Kecil berusia 36 bulan loh',
+ 'Poll 05 - Teman Bumil sudah ada di Instagram loh Mums (temanbumil)'='Poll 05 - Teman Bumil sudah ada di Instagram loh Mums (temanbumil)',
+ 'Poll 06 - Apakah Mums aktif mengikuti acara yang diadakan komunitas tersebut'='Poll 06 - Apakah Mums aktif mengikuti acara yang diadakan komunitas tersebut',
+ 'Poll 06 - Apakah selama kehamilan atau menyusui Mums tergabung dalam komunitas tertentu'='Poll 06 - Apakah selama kehamilan atau menyusui Mums tergabung dalam komunitas tertentu',
+ 'Poll 07 - Apakah Mums melakukan check up ke Dokter atau  Bidan sesuai jadwal  teratur'='Poll 07 - Apakah Mums melakukan check up ke Dokter atau  Bidan sesuai jadwal  teratur',
+ 'Poll 07 - Sudahkah Mums memperhatikan asupan gizi selama kehamilan'='Poll 07 - Sudahkah Mums memperhatikan asupan gizi selama kehamilan',
+ "Poll 07 - Vitamin kehamilan apa saja yang Mums konsumsi - Bermerek"="Poll 07 - Vitamin kehamilan apa saja yang Mums konsumsi - Bermerek", 
+ "Poll 07 - Vitamin kehamilan apa saja yang Mums konsumsi - non-Merek"="Poll 07 - Vitamin kehamilan apa saja yang Mums konsumsi - non-Merek",
+ 'Poll 08 - Berapa nilai pembelanjaan online yang Mums lakukan setiap bulannya'='Poll 08 - Berapa nilai pembelanjaan online yang Mums lakukan setiap bulannya',
+ 'Poll 08 - Promo apa yang paling membuat Mums tertarik untuk belanja online (pilih 3)'='Poll 08 - Promo apa yang paling membuat Mums tertarik untuk belanja online (pilih 3)',
+ 'Poll 08 - Promo produk ibu dan bayi apa yg Mums harapkan dari belanja online (pilih 3)'='Poll 08 - Promo produk ibu dan bayi apa yg Mums harapkan dari belanja online (pilih 3)',
+ 'Poll 09 - Siapa saja support system Mums saat ini (pilih 3)'='Poll 09 - Siapa saja support system Mums saat ini (pilih 3)',
+ 'Poll 09 - Suami Mums sudah SIAGA (Siap - Antar - Jaga)'='Poll 09 - Suami Mums sudah SIAGA (Siap - Antar - Jaga)',
+ 'Poll 10 - Keluhan apa saja yang Mums alami selama kehamilan'='Poll 10 - Keluhan apa saja yang Mums alami selama kehamilan',
+ 'Poll 10 - Olahraga apa saja yang Mums jalani ketika masa kehamilan'='Poll 10 - Olahraga apa saja yang Mums jalani ketika masa kehamilan',
+ 'Poll 11 - Kekuatiran apa yang paling Mums rasakan ketika sedang hamil'='Poll 11 - Kekuatiran apa yang paling Mums rasakan ketika sedang hamil',
+ 'Poll 11 - Pemeriksaan kesehatan apa yang Mums lakukan sebelum hamil'='Poll 11 - Pemeriksaan kesehatan apa yang Mums lakukan sebelum hamil',
+ 'Poll 12 - Barang apa yang Mums harus beli di toko krn tidak yakin dg olshop'='Poll 12 - Barang apa yang Mums harus beli di toko krn tidak yakin dg olshop',
+ 'Poll 12 - Dimana Mums biasa paling sering belanja kebutuhan bayi'='Poll 12 - Dimana Mums biasa paling sering belanja kebutuhan bayi',
+ 'Poll 13 - Barang apa yang Mums pernah beli di onlineshop'='Poll 13 - Barang apa yang Mums pernah beli di onlineshop',
+ 'Poll 13 - Kenapa Mums lebih suka belanja di onlineshop'='Poll 13 - Kenapa Mums lebih suka belanja di onlineshop',
+ 'Poll 14 - Apa saja yang jadi pertimbangan Mums ketika memilih rental (pilih 3)'='Poll 14 - Apa saja yang jadi pertimbangan Mums ketika memilih rental (pilih 3)',
+ 'Poll 14 - Barang apa yang menurut Mums lebih baik rental daripada beli (pilih 3)'='Poll 14 - Barang apa yang menurut Mums lebih baik rental daripada beli (pilih 3)',
+ 'Poll 15 - Bagaimana cara Mums melawan mual atau morning sickness di awal kehamilan'='Poll 15 - Bagaimana cara Mums melawan mual atau morning sickness di awal kehamilan',
+ 'Poll 15 - Berapa lama Mums menanti kehamilan ini'='Poll 15 - Berapa lama Mums menanti kehamilan ini',
+ 'Poll 15 - Tantangan terbesar apa yang Mums hadapi selama kehamilan'='Poll 15 - Tantangan terbesar apa yang Mums hadapi selama kehamilan',
+ 'Poll 16 - Mana yang paling menggambarkan hubungan Mums dan suami'='Poll 16 - Mana yang paling menggambarkan hubungan Mums dan suami',
+ 'Poll 16 - Seberapa aktif suami terlibat aktif dalam proses kehamilan Mums'='Poll 16 - Seberapa aktif suami terlibat aktif dalam proses kehamilan Mums',
+ 'Poll 17 - Layanan homeservice kehamilan apa yang sudah pernah  ingin Mums coba'='Poll 17 - Layanan homeservice kehamilan apa yang sudah pernah  ingin Mums coba',
+ 'Poll 17 - Sejauh apa Moms butuh jasa bidan dtg ke rumah utk perawatan pasca lahiran'='Poll 17 - Sejauh apa Moms butuh jasa bidan dtg ke rumah utk perawatan pasca lahiran',
+ 'Poll 17 - Selama hamil apakah Mums pernah coba layanan datang ke rumah (homeservice)'='Poll 17 - Selama hamil apakah Mums pernah coba layanan datang ke rumah (homeservice)',
+ 'Poll 18 - Apakah Mums rajin mengisi KIA'='Poll 18 - Apakah Mums rajin mengisi KIA',
+ 'Poll 18 - Kendala apa saja yang Mums hadapi dalam mengisi KIA'='Poll 18 - Kendala apa saja yang Mums hadapi dalam mengisi KIA',
+ 'Poll 19 - Bagaimana cara Mums mengatasi gejala kecemasan tersebut'='Poll 19 - Bagaimana cara Mums mengatasi gejala kecemasan tersebut',
+ 'Poll 19 - Gejala kecemasan apa yang pernah Mums alami'='Poll 19 - Gejala kecemasan apa yang pernah Mums alami',
+ 'Poll 19 - Penyebab kecemasan Mums biasa nya berasal dari...'='Poll 19 - Penyebab kecemasan Mums biasa nya berasal dari...',
+ 'Poll 20 - Apakah tantangan terbesar Mums dalam menjaga asupan gizi'='Poll 20 - Apakah tantangan terbesar Mums dalam menjaga asupan gizi',
+ 'Poll 20 - Hasil pengukuran kenaikan berat badan Mums di pemeriksaan terakhir adalah...'='Poll 20 - Hasil pengukuran kenaikan berat badan Mums di pemeriksaan terakhir adalah...',
+ 'Poll 21 - Apakah Mums tertarik untuk mendaftar asuransi jiwa'='Poll 21 - Apakah Mums tertarik untuk mendaftar asuransi jiwa',
+ 'Poll 21 - Menurut Mums asuransi jiwa itu penting atau tidak'='Poll 21 - Menurut Mums asuransi jiwa itu penting atau tidak',
+ 'Poll 21 - Siapa di keluarga Mums yang sudah memiliki asuransi jiwa'='Poll 21 - Siapa di keluarga Mums yang sudah memiliki asuransi jiwa',
+ 'Poll 22 - Apa saja pertimbangan Mums ketika memilih vitamin dan suplemen kehamilan'='Poll 22 - Apa saja pertimbangan Mums ketika memilih vitamin dan suplemen kehamilan',
+ 'Poll 22 - Siapakah yang mempengaruhi Mums dalam pemilihan suplemen asam folat'='Poll 22 - Siapakah yang mempengaruhi Mums dalam pemilihan suplemen asam folat',
+ 'Poll 22 - Vitamin dan suplemen kehamilan apa yg saat ini rutin Mums konsumsi (max 3)'='Poll 22 - Vitamin dan suplemen kehamilan apa yg saat ini rutin Mums konsumsi (max 3)',
+ 'Poll 23 - Bagaimana cara Mums memantau pergerakan janin di dalam kandungan'='Poll 23 - Bagaimana cara Mums memantau pergerakan janin di dalam kandungan',
+ 'Poll 23 - Kapan biasanya janin Mums aktif bergerak'='Poll 23 - Kapan biasanya janin Mums aktif bergerak',
+ 'Poll 23 - Seberapa sering Mums mengamati pergerakan janin di dalam kandungan'='Poll 23 - Seberapa sering Mums mengamati pergerakan janin di dalam kandungan',
+ 'Poll 24 - Berapa kali dalam seminggu biasanya Mums membuka Teman Bumil'='Poll 24 - Berapa kali dalam seminggu biasanya Mums membuka Teman Bumil',
+ 'Poll 24 - Kapan biasanya Mums membuka aplikasi Teman Bumil'='Poll 24 - Kapan biasanya Mums membuka aplikasi Teman Bumil',
+ 'Poll 24 - Kehamilan kali ini adalah kehamilan Mums yang ke berapa'='Poll 24 - Kehamilan kali ini adalah kehamilan Mums yang ke berapa',
+'Poll 25 - Vitamin apa yang Mums konsumsi di trimester KEDUA'='Poll 25 - Vitamin apa yang Mums konsumsi di trimester KEDUA',
+ 'Poll 25 - Vitamin apa yang Mums konsumsi di trimester KETIGA'='Poll 25 - Vitamin apa yang Mums konsumsi di trimester KETIGA',
+ 'Poll 25 - Vitamin apa yang Mums konsumsi di trimester PERTAMA'='Poll 25 - Vitamin apa yang Mums konsumsi di trimester PERTAMA',
+ 'Poll 26 - Apa yang menjadi pertimbangan Mums ketika membeli asuransi'='Poll 26 - Apa yang menjadi pertimbangan Mums ketika membeli asuransi',
+ 'Poll 26 - Berapa besaran premi bulanan yang Mums mau bayarkan untuk asuransi jiwa'='Poll 26 - Berapa besaran premi bulanan yang Mums mau bayarkan untuk asuransi jiwa',
+ 'Poll 26 - Moment apa yang membuat Mums berpikir Wah perlu beli asuransi nih'='Poll 26 - Moment apa yang membuat Mums berpikir Wah perlu beli asuransi nih',
+ 'Poll 27 - Berapa minggu kah usia kehamilan Mums pada waktu Mums dinyatakan hamil'='Poll 27 - Berapa minggu kah usia kehamilan Mums pada waktu Mums dinyatakan hamil',
+ "Poll 27 - Bagikan cerita menarik Mums ketika Mums dinyatakan hamil - Max 105 karakter" = "Poll 27 - Bagikan cerita menarik Mums ketika Mums dinyatakan hamil - Max 105 karakter",
+'Poll 28 - Jika fitur forum kami dimoderasi oleh Bidan atau Dokter apakah Mums tertarik'='Poll 28 - Jika fitur forum kami dimoderasi oleh Bidan atau Dokter apakah Mums tertarik',
+ 'Poll 28 - Seberapa percayakah Mums terhadap rekomendasi Dokter atau Bidan'='Poll 28 - Seberapa percayakah Mums terhadap rekomendasi Dokter atau Bidan',
+ 'Poll 28 - Selama kehamilan Mums memeriksakan kandungan ke...'='Poll 28 - Selama kehamilan Mums memeriksakan kandungan ke...',
+ 'Poll 29 - Apa Mums bersedia dihubungi utk mengetahui lebih lanjut mengenai Flexilife'='Poll 29 - Apa Mums bersedia dihubungi utk mengetahui lebih lanjut mengenai Flexilife',
+ 'Poll 29 - Berapa jumlah keluarga inti Mums saat ini (Mums Dads dan si Kecil)'='Poll 29 - Berapa jumlah keluarga inti Mums saat ini (Mums Dads dan si Kecil)',
+ 'Poll 29 - Berapakah besarnya rata-rata pengeluaran keluarga Mums tiap bulannya'='Poll 29 - Berapakah besarnya rata-rata pengeluaran keluarga Mums tiap bulannya')
+
+
+polls_essay <<- list("Poll 07 - Vitamin kehamilan apa saja yang Mums konsumsi - Bermerek"="Poll 07 - Vitamin kehamilan apa saja yang Mums konsumsi - Bermerek", 
+		  "Poll 07 - Vitamin kehamilan apa saja yang Mums konsumsi - non-Merek"="Poll 07 - Vitamin kehamilan apa saja yang Mums konsumsi - non-Merek",
+              "Poll 27 - Bagikan cerita menarik Mums ketika Mums dinyatakan hamil - Max 105 karakter" = "Poll 27 - Bagikan cerita menarik Mums ketika Mums dinyatakan hamil - Max 105 karakter")
+		
+server <- function(input, output, session) {
+
+terms <- reactive({
+input$update
+getTermDF <- function(poll){
+if (!(poll %in% polls_essay) && !(poll %in% polls_non_essay))
+    stop("Unknown poll")
+
+df <- read.csv(sprintf("%s.csv", poll), header = TRUE, stringsAsFactors = FALSE)
+df <- df %>% 
+  rename(
+    Answer = Word,
+    Frequency = Freq,
+    )
+df <- df[,c("Answer", "Frequency")]
+if (poll %in% polls_essay){
+	return(df)
+} else{
+df <- df[order(-df$Frequency),]
+df$Answer <- reorder(df$Answer, df$Frequency)
+df$Percentage <- (df$Frequency*100 / sum(df$Frequency))
+#df$Cumsum <- cumsum(df$Frequency)
+df$CumPercentage <- cumsum(df$Percentage)
+return(df)
+}
+    }
+
+       getTermDF(input$selection)
+  })
+
+
+make_cloud <- reactive ({
+    wordcloud_rep <- repeatable(wordcloud)
+    v <- terms()
+    png(sprintf("%s.png",input$selection), width=10, height=8, units="in", res=350)
+    w <- wordcloud_rep(v$Answer, v$Frequency, scale=c(7,1),
+min.freq = input$freq, max.words=input$max,
+colors=brewer.pal(8, "Dark2"))
+    dev.off()
+
+    filename = sprintf("%s.png",input$selection)
+    })
+    
+output$plotWordCloud <- renderImage({
+    list(src=make_cloud(), alt="Image being generated!", height=600)
+  },
+  deleteFile = FALSE)
+
+output$wordcloud_img <- downloadHandler(
+    filename = function() {
+      paste(input$selection, ".png", sep = "")
+    },
+    content = function(cloud) {
+      file.copy(make_cloud(), cloud)
+    })
+
+make_pie <- reactive ({
+    v <- terms()
+    png(sprintf("%s.png",input$selection), width=10, height=8, units="in", res=350)
+    
+slices <- v$Frequency
+lbls <- v$Answer
+pct <- round(slices/sum(slices)*100)
+lbls <- paste(lbls, pct) 
+lbls <- paste(lbls,"%",sep="")
+w <- pie(slices,labels = lbls,
+   main=input$selection)
+    dev.off()
+
+    filename = sprintf("%s.png",input$selection)
+    })
+    
+output$plotPieChart <- renderImage({
+    list(src=make_pie(), alt="Image being generated!", height=600)
+  },
+  deleteFile = FALSE)
+
+output$piechart_img <- downloadHandler(
+    filename = function() {
+      paste(input$selection, ".png", sep = "")
+    },
+    content = function(pie) {
+      file.copy(make_pie(), pie)
+    })
+
+output$table <- DT::renderDataTable({
+    DT::datatable(terms(), options = list(lengthMenu = c(10, 30, 50), pageLength = 10))
+  })
+
+output$downloadData <- downloadHandler(
+    filename = function() {
+      paste(input$selection, ".csv", sep = "")
+    },
+    content = function(file) {
+      write.csv(terms(), file, row.names = FALSE)
+    }
+  )
+
+observe({
+      req(input$selection)
+      if (input$selection %in% polls_essay) {
+            hideTab(inputId = "navbar", target = 'pieChart')
+      }
+      else showTab(inputId = "navbar", target = 'pieChart')
+    })
+
+observe({
+      req(input$selection)
+      if (input$selection %in% polls_non_essay) {
+            hideTab(inputId = "navbar", target = 'wordCloud')
+      }
+      else showTab(inputId = "navbar", target = 'wordCloud')
+    })
+
+output$frequency <- renderUI({
+if (input$selection %in% polls_essay){
+  sliderInput("freq",
+                  "Minimum Frequency:",
+                  min = 5,  max = 200, value = 15)
+}
+})
+
+output$maximum <- renderUI({
+if (input$selection %in% polls_essay){
+   sliderInput("max", "Maximum Number of Words:", min = 1,  max = 150,  value = 100)
+}
+})
+
+}
+                        
+ui <- fluidPage(
+  titlePanel("Polling Results"),
+  sidebarLayout(
+    sidebarPanel(
+	id = "side",
+      selectInput("selection", "Choose a poll:", choices = polls, selected = 1),
+      hr(),
+	uiOutput("frequency"),
+	uiOutput("maximum")
+      ),
+mainPanel(
+	useShinyjs(),
+	tabsetPanel(
+	  id = "navbar",
+	  tabPanel(title = "Pie Chart", value = "pieChart", downloadButton("piechart_img", "Download Pie Chart"), plotOutput("plotPieChart",width = "800px", height="800px")),
+        tabPanel(title = "Word Cloud", value = "wordCloud", downloadButton("wordcloud_img", "Download Word Cloud"), plotOutput("plotWordCloud",width = "800px", height="800px")),
+        tabPanel(title = "Table", value = "Table", downloadButton("downloadData", "Download Table (CSV)"), DT::dataTableOutput("table"))
+      ))))
+shinyApp(ui = ui, server = server)
