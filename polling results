@@ -1,0 +1,86 @@
+library(readr)
+library(stringr)
+library(data.table)
+library(parallel)
+library(tm)
+library(dplyr)
+library(slam)
+require(zoo)
+require(xts)
+library(tokenizers)
+library(stringi)
+library(ggplot2)
+library(wordcloud)
+library(SnowballC)
+require(sqldf)
+library(wordcloud2)
+
+df <- read.csv("../input/polling/Polling 27 - 22 - 29 Apr.csv", header=T)
+
+data = df[df$Pertanyaan=="Bagikan cerita menarik Mums ketika Mums dinyatakan hamil (Max:105 karakter)",c("Jawaban")]
+corpus_jawaban = Corpus(VectorSource(data))
+corpus_jawaban = tm_map(corpus_jawaban, tolower)
+corpus_jawaban = tm_map(corpus_jawaban,removePunctuation)
+corpus_jawaban = tm_map(corpus_jawaban, removeNumbers)
+corpus_jawaban = tm_map(corpus_jawaban, stripWhitespace)
+abrev <- c("seneng", "gak", "gk", "karna", "sempet", "pastinya", "tdk", "secepat", "kalo","thn", "sampe", "sdh", "yg", "tespack","menyangka","kehamilan", "bgt", "banget","krn", "karenaa", "tespek", "testpack", "aja", "enggak", "tidak", "udh","tes","testt", "bln", "menikah", "ngga")
+replace <- c("senang", "ga", "ga", "karena", "sempat", "pasti", "ga", "cepat","kalau","tahun", "sampai","udah","yang","test pack","nyangka","hamil", "sangat", "sangat","karena", "karena", "test pack", "test pack", "saja", "ga", "ga", "udah", "test", "test", "bulan", "nikah","ga")
+corpus_jawaban = tm_map(corpus_jawaban,function(x) stri_replace_all_fixed(x, abrev, replace, vectorize_all = FALSE))
+abrev2 <- c("nyangaa", "menyangka")
+replace2 <- c("nyangka", "nyangka")
+corpus_jawaban = tm_map(corpus_jawaban,function(x) stri_replace_all_fixed(x, abrev2, replace2, vectorize_all = FALSE))
+corpus_jawaban = tm_map(corpus_jawaban, removeWords, stopwords::stopwords("id", source = "stopwords-iso"))
+corpus_jawaban = tm_map(corpus_jawaban, removeWords, c("nya", "sih", "udah"))
+
+unigram <- function(thisCorpus) {
+    thisTDM2D <- TermDocumentMatrix(thisCorpus)
+    thisTDM1D <- rollup(thisTDM2D, 2, na.rm = TRUE, FUN = sum)
+    thisUniGramDF <- data.frame(words = thisTDM1D$dimnames$Terms, freq = thisTDM1D$v)
+    thisUniGramDFOrdered <- thisUniGramDF[order(-thisUniGramDF$freq),]
+    thisUniGramDFOrdered$words <- reorder(thisUniGramDFOrdered$words, thisUniGramDFOrdered$freq)
+    thisUniGramDFOrdered$percentage <- (thisUniGramDFOrdered$freq / sum(thisUniGramDFOrdered$freq))
+    thisUniGramDFOrdered$cumsum <- cumsum(thisUniGramDFOrdered$freq)
+    thisUniGramDFOrdered$cumpercentage <- cumsum(thisUniGramDFOrdered$percentage)
+    return(thisUniGramDFOrdered)
+}
+
+jawaban_unigram = unigram(corpus_jawaban)
+unigram_freq = jawaban_unigram[,c("words","freq")]
+
+generate_nGrams <- function(thisDF, nValue){
+    thisDF <- unlist(thisDF)
+    nGramsList <- vector(mode = "character")
+    for (i in 1:length(thisDF)) {
+        this_nGramsList <- tokenize_ngrams(
+            thisDF[i], n = nValue, simplify = FALSE)
+        nGramsList <- c(nGramsList, this_nGramsList[[1]])
+    }
+    return(nGramsList)
+}
+generate_nGramsDF <- function(thisCorpus, nValue){
+    thisDF <- data.frame(text = sapply(thisCorpus, as.character), stringsAsFactors = FALSE)
+    thisNGrams <- unname(unlist(sapply(thisDF, generate_nGrams, nValue)))
+    thisGramsDF <- data.frame(table(thisNGrams))
+    thisGramsDF$percentage <- (thisGramsDF$Freq/sum(thisGramsDF$Freq))
+    thisGramsDF <- thisGramsDF[order(-thisGramsDF$Freq),]
+    colnames(thisGramsDF) <- c("words","freq","percentage")
+    return(thisGramsDF)
+}
+jawaban_bigram <- generate_nGramsDF(corpus_jawaban, 2)
+bigram_freq = jawaban_bigram[,c("words","freq")]
+
+jawaban_bigram <- jawaban_bigram[! jawaban_bigram$words %in% c("senang ga", "bahagia ga", "percaya ga", "senang pas",
+                                                              "hamil suami", "hamil minggu", "nyangka hamil", 
+                                                              "kaget ga", "hamil ga", "nyatakan hamil", "senang campur"
+                                                              , "suami ga", "terharu ga"),]
+unibigram_freq <- rbind(unigram_freq,bigram_freq)
+unibigram_freq <- unibigram_freq[order(-unibigram_freq$freq),]
+unibigram_freq <- unibigram_freq[! unibigram_freq$words %in% c("test", "pack", "campur", "aduk", "ga", "nyangka", 
+                                                               "senang bahagia","langsung", "dinyatakan", "senang ga", "swt"
+                                                              
+                                                              , "bahagia terharu", "bahagia bersyukur", "pas", "bahagia ga"
+                                                              , "usia", "minggu", "kali", "tau", "percaya ga", "kasih", 
+                                                              "haid", "syukur", "senang bersyukur", "alhamdulillah senang"
+                                                             , "dikasih", "beli", "kaget ga", "positif", "liat", "telat"),]
+write.csv(unibigram_freq, file = "Poll 27 - Bagikan cerita menarik Mums ketika Mums dinyatakan hamil - Max 105 karakter.csv")
+
